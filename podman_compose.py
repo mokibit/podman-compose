@@ -1660,10 +1660,13 @@ def normalize_service_final(service: dict, project_dir: str) -> dict:
     if "build" in service:
         build = service["build"]
         context = build if isinstance(build, str) else build.get("context", ".")
-        context = os.path.normpath(os.path.join(project_dir, context))
+        if not re.match(r"[^:]+://", context):
+            context = os.path.normpath(os.path.join(project_dir, context))
+        print("context after regex= ", context)
         if not isinstance(service["build"], dict):
             service["build"] = {}
         service["build"]["context"] = context
+    print("service = ", service)
     return service
 
 
@@ -2497,7 +2500,9 @@ def container_to_build_args(compose, cnt, args, path_exists, cleanup_callbacks=N
     if not hasattr(build_desc, "items"):
         build_desc = {"context": build_desc}
     ctx = build_desc.get("context", ".")
+    print("ctx 11 = ", ctx)
     dockerfile = build_desc.get("dockerfile")
+    print("dockerfile 22 = ", dockerfile)
     dockerfile_inline = build_desc.get("dockerfile_inline")
     if dockerfile_inline is not None:
         dockerfile_inline = str(dockerfile_inline)
@@ -2515,25 +2520,41 @@ def container_to_build_args(compose, cnt, args, path_exists, cleanup_callbacks=N
 
         if cleanup_callbacks is not None:
             list.append(cleanup_callbacks, cleanup_temp_dockfile)
-    else:
-        if dockerfile:
+
+    build_args = []
+    if not dockerfile:
+        print("not dockerfile")
+    if not re.match(r"[^:]+://", ctx):
+        print("not match")
+
+    # when dockerfile & not search -> join
+    # what comes as path_exists
+
+    # find dockerfile in ctx directory and join it for path if ctx is not git url
+    if not dockerfile and not re.match(r"[^:]+://", ctx):
+        dockerfile_alts = [
+            "Containerfile",
+            "ContainerFile",
+            "containerfile",
+            "Dockerfile",
+            "DockerFile",
+            "dockerfile",
+        ]
+        for dockerfile in dockerfile_alts:
             dockerfile = os.path.join(ctx, dockerfile)
-        else:
-            dockerfile_alts = [
-                "Containerfile",
-                "ContainerFile",
-                "containerfile",
-                "Dockerfile",
-                "DockerFile",
-                "dockerfile",
-            ]
-            for dockerfile in dockerfile_alts:
-                dockerfile = os.path.join(ctx, dockerfile)
-                if path_exists(dockerfile):
-                    break
-    if not path_exists(dockerfile):
-        raise OSError("Dockerfile not found in " + ctx)
-    build_args = ["-f", dockerfile, "-t", cnt["image"]]
+            print("dockerfile 2 = ", dockerfile)
+            if path_exists(dockerfile):  # iš kur tas kitoks path exists
+                # ar turėtų būti tiesiog os.path.exists(os.path.join(ctx, dockerfile)
+                print("PATH EXISTS")
+                dockerfile = os.path.normpath(os.path.join(ctx, dockerfile))
+                build_args.extend(["-f", dockerfile])
+                break
+        print("dockerfile 3 = ", dockerfile)
+        if not dockerfile:
+            raise OSError("Dockerfile not found in " + ctx)
+    print("build args = ", build_args)
+
+    build_args.extend(["-t", cnt["image"]])
     if "platform" in cnt:
         build_args.extend(["--platform", cnt["platform"]])
     for secret in build_desc.get("secrets", []):
@@ -2569,6 +2590,7 @@ def container_to_build_args(compose, cnt, args, path_exists, cleanup_callbacks=N
     for cache_img in build_desc.get("cache_to", []):
         build_args.extend(["--cache-to", cache_img])
     build_args.append(ctx)
+    print("build args before return = ", build_args)
     return build_args
 
 
@@ -2589,6 +2611,7 @@ async def build_one(compose, args, cnt):
     build_args = container_to_build_args(
         compose, cnt, args, os.path.exists, cleanup_callbacks=cleanup_callbacks
     )
+    print("CALLING BUILD build_args 4 = ", build_args)
     status = await compose.podman.run([], "build", build_args)
     for c in cleanup_callbacks:
         c()
@@ -2720,6 +2743,7 @@ async def compose_up(compose: PodmanCompose, args):
     if not args.no_build:
         # `podman build` does not cache, so don't always build
         build_args = argparse.Namespace(if_not_exists=(not args.build), **args.__dict__)
+        print("CALLING BUILD build_args 4 = ", build_args)
         if await compose.commands["build"](compose, build_args) != 0:
             log.error("Build command failed")
 
