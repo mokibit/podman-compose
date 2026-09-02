@@ -1,0 +1,10 @@
+services:
+  web:
+    image: nopush/podman-compose-test
+    command: ["dumb-init", "/bin/busybox", "httpd", "-f", "-p", "8123", "-h", "/tmp/"]
+    networks:
+      - backend_net
+networks:
+  backend_net:
+    external:
+      name: external_network_name_backend
