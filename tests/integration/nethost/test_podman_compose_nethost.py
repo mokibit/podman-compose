@@ -3,8 +3,6 @@
 import os
 import unittest
 
-import requests
-
 from tests.integration.test_utils import RunSubprocessMixin
 from tests.integration.test_utils import podman_compose_path
 from tests.integration.test_utils import test_path
@@ -15,8 +13,7 @@ def compose_yaml_path() -> str:
 
 
 class TestComposeNethost(unittest.TestCase, RunSubprocessMixin):
-    # check if container listens for http requests and sends response back
-    # as network_mode: host allows to connect to container easily
+    # check if container with network_mode: host can be started and accessed
     def test_nethost(self) -> None:
         try:
             self.run_subprocess_assert_returncode(
@@ -34,7 +31,19 @@ class TestComposeNethost(unittest.TestCase, RunSubprocessMixin):
                 ],
             )
             container_id = container_id_out.decode('utf-8').split('\n')[0]
+
             output, _ = self.run_subprocess_assert_returncode(
+                [
+                    "podman",
+                    "inspect",
+                    "--format",
+                    "{{.HostConfig.NetworkMode}}",
+                    container_id,
+                ],
+            )
+            self.assertEqual(output.decode().strip(), "host")
+
+            self.run_subprocess_assert_returncode(
                 [
                     "podman",
                     "exec",
@@ -45,9 +54,18 @@ class TestComposeNethost(unittest.TestCase, RunSubprocessMixin):
                     "echo test_123 >> /tmp/test.txt",
                 ],
             )
-            response = requests.get('http://localhost:8123/test.txt')
-            self.assertEqual(response.ok, True)
-            self.assertEqual(response.text, "test_123\n")
+
+            output, _ = self.run_subprocess_assert_returncode(
+                [
+                    "podman",
+                    "exec",
+                    "-it",
+                    container_id,
+                    "cat",
+                    "/tmp/test.txt",
+                ],
+            )
+            self.assertEqual(output.decode(), "test_123\r\n")
         finally:
             self.run_subprocess_assert_returncode([
                 podman_compose_path(),
